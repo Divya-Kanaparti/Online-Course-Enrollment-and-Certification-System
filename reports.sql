@@ -54,11 +54,44 @@ GROUP BY c.course_name;
 
 -- Purpose: Counts the enrollments in each batch.
 -- Output: Execute this SELECT statement in MySQL to view the actual report rows.
--- R3. Count of students in each batch
-SELECT b.batch_code, COUNT(e.enrollment_id) AS student_count
+-- R3. Batch-wise active student count
+
+SELECT
+    b.batch_code,
+    c.course_name,
+    b.max_seats,
+
+    COUNT(
+        CASE
+            WHEN e.enrollment_status <> 'Dropped'
+            THEN e.enrollment_id
+        END
+    ) AS student_count,
+
+    b.max_seats -
+    COUNT(
+        CASE
+            WHEN e.enrollment_status <> 'Dropped'
+            THEN e.enrollment_id
+        END
+    ) AS available_seats
+
 FROM batches b
-LEFT JOIN enrollments e ON b.batch_id = e.batch_id
-GROUP BY b.batch_code;
+
+JOIN courses c
+    ON c.course_id = b.course_id
+
+LEFT JOIN enrollments e
+    ON e.batch_id = b.batch_id
+
+GROUP BY
+    b.batch_id,
+    b.batch_code,
+    c.course_name,
+    b.max_seats
+
+ORDER BY student_count DESC;
+
 
 -- Purpose: Identifies enrollments where the amount paid is less than the course fee.
 -- Output: Execute this SELECT statement in MySQL to view the actual report rows.
@@ -98,10 +131,11 @@ GROUP BY t.trainer_name;
 
 -- Purpose: Calculates the average assessment marks for each course.
 -- Output: Execute this SELECT statement in MySQL to view the actual report rows.
--- R8. Course-wise average assessment marks
-SELECT c.course_name, AVG(ar.marks_obtained) AS average_marks
+-- R8. Course-wise average assessment percentage
+SELECT c.course_name,
+       ROUND(AVG(ar.marks_obtained * 100.0 / a.max_marks), 2) AS average_percentage
 FROM courses c
-JOIN batches b ON c.course_id = b.course_id
+JOIN batches b  ON c.course_id = b.course_id
 JOIN assessments a ON b.batch_id = a.batch_id
 JOIN assessment_results ar ON a.assessment_id = ar.assessment_id
 GROUP BY c.course_name;
@@ -117,3 +151,75 @@ JOIN students s ON e.student_id = s.student_id
 JOIN batches b ON e.batch_id = b.batch_id
 JOIN courses c ON b.course_id = c.course_id
 ORDER BY cert.certificate_no;
+
+
+-- R10. Trainer-wise course assignment report
+
+SELECT
+    t.trainer_id,
+    t.trainer_name,
+    t.specialization,
+    COUNT(ct.course_id) AS total_courses,
+
+    GROUP_CONCAT(
+        c.course_name
+        ORDER BY c.course_name
+        SEPARATOR ', '
+    ) AS assigned_courses
+
+FROM trainers t
+
+LEFT JOIN course_trainers ct
+    ON ct.trainer_id = t.trainer_id
+
+LEFT JOIN courses c
+    ON c.course_id = ct.course_id
+
+GROUP BY
+    t.trainer_id,
+    t.trainer_name,
+    t.specialization
+
+ORDER BY total_courses DESC;
+
+
+-- R11. Student enrollment history
+
+SELECT
+    s.student_id,
+    CONCAT(s.first_name, ' ', s.last_name) AS student_name,
+    c.course_name,
+    b.batch_code,
+    e.enrollment_date,
+    e.enrollment_status,
+    e.payment_status,
+    e.fee_paid,
+    c.fee - e.fee_paid AS balance_due
+
+FROM students s
+
+JOIN enrollments e
+    ON s.student_id = e.student_id
+
+JOIN batches b
+    ON e.batch_id = b.batch_id
+
+JOIN courses c
+    ON b.course_id = c.course_id
+
+ORDER BY
+    s.student_id,
+    e.enrollment_date DESC;
+
+-- R12. Certificate eligibility report
+SELECT student_name, course_name, batch_code,
+       final_percentage, payment_status, eligibility, certificate_issued
+FROM v_certificate_eligibility
+ORDER BY course_name, batch_code, student_name;
+
+-- R13. Student performance report
+SELECT student_name, course_name, batch_code,
+       completed_assessments, total_assessments,
+       progress_percentage, marks_percentage, failed_assessments
+FROM v_student_progress
+ORDER BY marks_percentage DESC;
